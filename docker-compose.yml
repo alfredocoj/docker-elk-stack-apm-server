@@ -1,6 +1,7 @@
 version: '3'
 services:
   beat:
+    container_name: apm-server
     image: docker.elastic.co/apm/apm-server:7.5.1
     ports:
       - "8200:8200"
@@ -16,13 +17,17 @@ services:
     depends_on:
       - elasticsearch
       - kibana
+    restart: always
   elasticsearch:
+    container_name: elasticsearch
     image: docker.elastic.co/elasticsearch/elasticsearch:7.5.1
     # network_mode: "service:elasticsearch"
     volumes:
         - ./elasticsearch/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
+        - ./elasticsearch/esdata:/usr/share/elasticsearch/data
+        #- ./elasticsearch/storage:/usr/share/elasticsearch/data
     environment:
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      #- ES_JAVA_OPTS= "-Xmx2g -Xms256m"
       - discovery.type=single-node
       - http.host=0.0.0.0
       - transport.host=127.0.0.1
@@ -32,10 +37,13 @@ services:
       - apm
     ports:
       - "9200:9200"
+      - "9300:9300"
+    restart: always
   kibana:
+    container_name: kibana
     image: docker.elastic.co/kibana/kibana:7.5.1
-    # volumes:
-    #     - ./kibana.yml:/usr/share/kibana/config/kibana.yml
+    volumes:
+        - ./kibana/kibana.yml:/usr/share/kibana/config/kibana.yml
     ports:
       - "5601:5601"
     networks:
@@ -46,7 +54,9 @@ services:
       - ELASTICSEARCH_PASSWORD=WUHl8OGHl123
     depends_on:
       - elasticsearch
+    restart: always
   logstash:
+    container_name: logstash
     image: logstash:7.5.1
     ports:
       - "5044:5044"
@@ -56,12 +66,31 @@ services:
     volumes:
       - ./logstash/logstash.conf:/config-dir/logstash.conf
       - ./logstash/logstash.yml:/usr/share/logstash/config/logstash.yml
+      #- ./logstash/pipeline:/usr/share/logstash/pipeline:ro
     command: logstash -f /config-dir/logstash.conf
     depends_on:
       - elasticsearch
       - kibana
     networks:
-      - apm 
+      - apm
+    restart: always
+    #environment:
+    # - LS_JAVA_OPTS= "-Xmx1g -Xms1g -Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.ssl=false -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.port=18080 -Dcom.sun.management.jmxremote.rmi.port=18080 -Djava.rmi.server.hostname=DOCKER_HOST_IP -Dcom.sun.management.jmxremote.local.only=false"  
+      
+  curator:
+    container_name: curator
+    image: jkris/curator:5
+    links:
+      - elasticsearch
+    volumes:
+      - ./curator/config.yml:/etc/curator/config.yml
+      - ./curator/action_file.yml:/etc/curator/action_file.yml
+    environment:
+      - COMMAND='curator --config /etc/curator/config.yml  /etc/curator/action_file.yml'
+      - SCHEDULE='30 4 * * *'
+    restart: always
+  #docker run -d -e SCHEDULE='30 4 * * *' -e COMMAND='curator --config /etc/curator/config.yml  /etc/curator/action_file.yml' --link <name_of_elasticsearch_container_name>:elasticsearch jkris/curator:5
+
 networks:
   apm:
     driver: bridge
